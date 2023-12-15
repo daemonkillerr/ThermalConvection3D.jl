@@ -129,14 +129,14 @@ end
     ar        = 3                  # aspect ratio
     # Physics - dimentionally dependent parameters
     lx        = ar*ly              # domain extend, m
-    lz        = lx
-    w         = 1e-2*ly            # initial perturbation standard deviation, m
-    ρ0gα      = Ra*η0*DcT/ΔT/ly^3  # thermal expansion
+    lz        = ly
+    w         = 1e-2*lz            # initial perturbation standard deviation, m
+    ρ0gα      = Ra*η0*DcT/ΔT/lz^3  # thermal expansion
     dη_dT     = 1e-10/ΔT           # viscosity's temperature dependence
     # Numerics
-    nx, ny, nz = 32*ar-1, 32-1, 32*ar-1      # numerical grid resolutions; should be a mulitple of 32-1 for optimal GPU perf
+    nx, ny, nz = 96*ar-1, 96-1, 96*ar-1      # numerical grid resolutions; should be a mulitple of 32-1 for optimal GPU perf
     iterMax   = 5*10^4             # maximal number of pseudo-transient iterations
-    nt        = 30               # total number of timesteps
+    nt        = 3000               # total number of timesteps
     nout      = 10                 # frequency of plotting
     nerr      = 100                # frequency of error checking
     ε         = 1e-4               # nonlinear absolute tolerence
@@ -147,12 +147,12 @@ end
     select_device()                                               # select one GPU per MPI local rank (if >1 GPU per node)
     dx, dy, dz = lx/(nx_g()-1), ly/(ny_g()-1), lz/(nz_g()-1)         # cell size
     ρ         = 1.0/Pra*η0/DcT                # density
-    dt_diff   = 1.0/4.1*min(dx,dy)^2/DcT      # diffusive CFL timestep limiter
-    dτ_iter   = 1.0/6.1*min(dx,dy)/sqrt(η0/ρ) # iterative CFL pseudo-timestep limiter
-    β         = 6.1*dτ_iter^2/min(dx,dy)^2/ρ  # numerical bulk compressibility
-    dampX     = 1.0-dmp/nx                    # damping term for the x-momentum equation
-    dampY     = 1.0-dmp/ny                    # damping term for the y-momentum equation
-    dampZ     = 1.0-dmp/nz                    # damping term for the y-momentum equation
+    dt_diff   = 1.0/6.1*min(dx,dy,dz)^2/DcT      # diffusive CFL timestep limiter
+    dτ_iter   = 1.0/9.1*min(dx,dy,dz)/sqrt(η0/ρ) # iterative CFL pseudo-timestep limiter
+    β         = 9.1*dτ_iter^2/min(dx,dy,dz)^2/ρ  # numerical bulk compressibility
+    dampX     = 1.0-dmp/nx_g()                    # damping term for the x-momentum equation
+    dampY     = 1.0-dmp/ny_g()                    # damping term for the y-momentum equation
+    dampZ     = 1.0-dmp/nz_g()                    # damping term for the y-momentum equation
     # Array allocations
     T         = @zeros(nx , ny, nz  )
     T        .= Data.Array([ΔT*exp(-((x_g(ix,dx,T)-0.5*lx)/w)^2 -((y_g(iy,dy,T)-0.5*ly)/w)^2 -((z_g(iz,dz,T)-0.5*lz)/w)^2) for ix=1:size(T,1), iy=1:size(T,2), iz=1:size(T,3)])
@@ -198,9 +198,9 @@ end
     T_v   = zeros(nx_v, ny_v, nz_v) # global array for visu
     T_inn = zeros(nx-2, ny-2, nz-2) # no halo local array for visu
     y_sl  = Int(ceil(ny/2))
-    X, Y, Z   = -lx/2:dx:lx/2, -ly/2:dy:ly/2, -lz/2:dz:lz/2
-    Xc, Yc, Zc = [x for x=X, y=Y, z=Z], [y for x=X, y=Y, z=Z], [z for x=X, y=Y, z=Z]
-    Xp, Yp, Zp = Xc[1:st:end,1:st:end,1:st:end], Yc[1:st:end,1:st:end,1:st:end], Zc[1:st:end,1:st:end,1:st:end]
+    #X, Y, Z   = -lx/2:dx:lx/2, -ly/2:dy:ly/2, -lz/2:dz:lz/2
+    #Xc, Yc, Zc = [x for x=X, y=Y, z=Z], [y for x=X, y=Y, z=Z], [z for x=X, y=Y, z=Z]
+    #Xp, Yp, Zp = Xc[1:st:end,1:st:end,1:st:end], Yc[1:st:end,1:st:end,1:st:end], Zc[1:st:end,1:st:end,1:st:end]
     Xi_g, Zi_g  = -lx/2+dx:dx:(lx/2-dx), -lz/2+dz:dz:(lz/2-dz) # inner points only
     # Time loop
     err_evo1=[]; err_evo2=[]
