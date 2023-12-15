@@ -77,8 +77,8 @@ end
                                                                   (Vx[ix+2,iy+1,iz+1]<0)*Vx[ix+2,iy+1,iz+1]*(T[ix+2,iy+1,iz+1]-T[ix+1,iy+1,iz+1])/dx -
                                                                   (Vy[ix+1,iy+1,iz+1]>0)*Vy[ix+1,iy+1,iz+1]*(T[ix+1,iy+1,iz+1]-T[ix+1,iy  ,iz+1])/dy -
                                                                   (Vy[ix+1,iy+2,iz+1]<0)*Vy[ix+1,iy+2,iz+1]*(T[ix+1,iy+2,iz+1]-T[ix+1,iy+1,iz+1])/dy -
-                                                                  (Vz[ix+1,iy+1,iz+1]>0)*Vy[ix+1,iy+1,iz+1]*(T[ix+1,iy+1,iz+1]-T[ix+1,iy+1,iz  ])/dz -
-                                                                  (Vz[ix+1,iy+1,iz+2]<0)*Vy[ix+1,iy+1,iz+2]*(T[ix+1,iy+1,iz+2]-T[ix+1,iy+1,iz+1])/dz  end
+                                                                  (Vz[ix+1,iy+1,iz+1]>0)*Vz[ix+1,iy+1,iz+1]*(T[ix+1,iy+1,iz+1]-T[ix+1,iy+1,iz  ])/dz -
+                                                                  (Vz[ix+1,iy+1,iz+2]<0)*Vz[ix+1,iy+1,iz+2]*(T[ix+1,iy+1,iz+2]-T[ix+1,iy+1,iz+1])/dz  end
     return
 end
 
@@ -87,9 +87,11 @@ end
     return
 end
 
-@parallel_indices (ix,iy,iz) function no_fluxY_T!(T::Data.Array)
+@parallel_indices (ix,iy,iz) function no_fluxYZ_T!(T::Data.Array)
     if (ix==size(T, 1) && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix-1,iy,iz] end
     if (ix==1          && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix+1,iy,iz] end
+    if (iz==size(T, 3) && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix1,iy,iz-1] end
+    if (iz==1          && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix1,iy,iz+1] end
     return
 end
 @parallel_indices (ix,iy,iz) function no_fluxZ_T!(T::Data.Array)
@@ -130,11 +132,11 @@ end
     # Physics - dimentionally dependent parameters
     lx        = ar*ly              # domain extend, m
     lz        = ly
-    w         = 1e-2*lz            # initial perturbation standard deviation, m
-    ρ0gα      = Ra*η0*DcT/ΔT/lz^3  # thermal expansion
+    w         = 1e-2*ly            # initial perturbation standard deviation, m
+    ρ0gα      = Ra*η0*DcT/ΔT/ly^3  # thermal expansion
     dη_dT     = 1e-10/ΔT           # viscosity's temperature dependence
     # Numerics
-    nx, ny, nz = 96*ar-1, 96-1, 96*ar-1      # numerical grid resolutions; should be a mulitple of 32-1 for optimal GPU perf
+    nx, ny, nz = 96*ar-1, 96-1, 96-1      # numerical grid resolutions; should be a mulitple of 32-1 for optimal GPU perf
     iterMax   = 5*10^4             # maximal number of pseudo-transient iterations
     nt        = 3000               # total number of timesteps
     nout      = 10                 # frequency of plotting
@@ -186,7 +188,7 @@ end
     qTz       = @zeros(nx-2,ny-2,nz-1)
     dT_dt     = @zeros(nx-2,ny-2,nz-2)
     ErrP      = @zeros(nx  ,ny  ,nz)
-    ErrV      = @zeros(nx  ,ny+1)
+    ErrV      = @zeros(nx  ,ny+1,nz)
     # Preparation of visualisation
     ENV["GKSwstype"]="nul"
     if (me==0)
@@ -197,7 +199,7 @@ end
     if (nx_v*ny_v*nz_v*sizeof(Data.Number) > 0.8*Sys.free_memory()) error("Not enough memory for visualization.") end
     T_v   = zeros(nx_v, ny_v, nz_v) # global array for visu
     T_inn = zeros(nx-2, ny-2, nz-2) # no halo local array for visu
-    y_sl  = Int(ceil(ny/2))
+    y_sl  = Int(ceil(ny_g()/2))
     #X, Y, Z   = -lx/2:dx:lx/2, -ly/2:dy:ly/2, -lz/2:dz:lz/2
     #Xc, Yc, Zc = [x for x=X, y=Y, z=Z], [y for x=X, y=Y, z=Z], [z for x=X, y=Y, z=Z]
     #Xp, Yp, Zp = Xc[1:st:end,1:st:end,1:st:end], Yc[1:st:end,1:st:end,1:st:end], Zc[1:st:end,1:st:end,1:st:end]
@@ -239,7 +241,7 @@ end
         dt_adv = min(dx/maximum_g(abs.(Array(Vx))), dy/maximum_g(abs.(Array(Vy))), dz/maximum_g(abs.(Array(Vz))))/2.1
         dt     = min(dt_diff, dt_adv)
         @parallel update_T!(T, T_old, dT_dt, dt)
-        @parallel no_fluxY_T!(T)
+        @parallel no_fluxYZ_T!(T)
         if (me==0) @printf("it = %d (iter = %d), errV=%1.3e, errP=%1.3e \n", it, niter, errV, errP) end
         # Visualization
         T_inn .= Array(inn(T));   gather!(T_inn, T_v)
