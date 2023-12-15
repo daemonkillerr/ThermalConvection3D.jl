@@ -90,8 +90,8 @@ end
 @parallel_indices (ix,iy,iz) function no_fluxYZ_T!(T::Data.Array)
     if (ix==size(T, 1) && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix-1,iy,iz] end
     if (ix==1          && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix+1,iy,iz] end
-    if (iz==size(T, 3) && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix1,iy,iz-1] end
-    if (iz==1          && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix1,iy,iz+1] end
+    if (iz==size(T, 3) && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix,iy,iz-1] end
+    if (iz==1          && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix,iy,iz+1] end
     return
 end
 @parallel_indices (ix,iy,iz) function no_fluxZ_T!(T::Data.Array)
