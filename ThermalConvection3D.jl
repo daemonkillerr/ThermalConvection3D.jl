@@ -10,6 +10,7 @@ using ImplicitGlobalGrid, Plots, Printf, Statistics, LinearAlgebra
 import MPI
 #Global reductions
 maximum_g(A) = (max_l  = maximum(A); MPI.Allreduce(max_l,  MPI.MAX, MPI.COMM_WORLD))
+minimum_g(A) = (min_l  = minimum(A); MPI.Allreduce(min_l,  MPI.MIN, MPI.COMM_WORLD))
 @views inn(A)   =  A[2:end-1,2:end-1,2:end-1]
 
 function save_array(Aname, A)
@@ -87,16 +88,18 @@ end
     return
 end
 
+##############
 @parallel_indices (ix,iy,iz) function no_fluxYZ_T!(T::Data.Array)
-    if (ix==size(T, 1) && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix-1,iy,iz] end
-    if (ix==1          && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix+1,iy,iz] end
-    if (iz==size(T, 3) && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix,iy,iz-1] end
-    if (iz==1          && iy<=size(T ,2) && ix<=size(T ,1)) T[ix,iy,iz] = T[ix,iy,iz+1] end
-    return
-end
-@parallel_indices (ix,iy,iz) function no_fluxZ_T!(T::Data.Array)
-    if (ix==size(T, 1) && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix-1,iy,iz] end
-    if (ix==1          && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix+1,iy,iz] end
+    if (ix==size(T, 1) && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix-1,iy,iz  ] end #right plane
+    if (ix==1          && iy<=size(T ,2) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix+1,iy,iz  ] end #left plane
+    #if (ix==size(T, 1) && iy<=size(T ,2) && iz<size(T ,3) && iz>1) T[ix,iy,iz] = T[ix-1,iy,iz  ] end #right plane
+    #if (ix==1          && iy<=size(T ,2) && iz<size(T ,3) && iz>1) T[ix,iy,iz] = T[ix+1,iy,iz  ] end #left plane
+    #if (ix==size(T, 1) && iy<=size(T ,2) && iz==size(T ,3)       ) T[ix,iy,iz] = T[ix-1,iy,iz-1] end #right back corner
+    #if (ix==size(T, 1) && iy<=size(T ,2) && iz==1                ) T[ix,iy,iz] = T[ix-1,iy,iz+1] end #right front corner
+    #if (ix==1          && iy<=size(T ,2) && iz==size(T ,3)       ) T[ix,iy,iz] = T[ix+1,iy,iz-1] end #left back corner
+    #if (ix==1          && iy<=size(T ,2) && iz==1                ) T[ix,iy,iz] = T[ix+1,iy,iz+1] end #left front corner
+    if (iy==size(T, 2) && ix<=size(T ,1) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix,iy-1,iz  ] end 
+    if (iy==1          && ix<=size(T ,1) && iz<=size(T ,3)) T[ix,iy,iz] = T[ix,iy+1,iz  ] end
     return
 end
 
@@ -149,12 +152,14 @@ end
     select_device()                                               # select one GPU per MPI local rank (if >1 GPU per node)
     dx, dy, dz = lx/(nx_g()-1), ly/(ny_g()-1), lz/(nz_g()-1)         # cell size
     ρ         = 1.0/Pra*η0/DcT                # density
+    #################
     dt_diff   = 1.0/6.1*min(dx,dy,dz)^2/DcT      # diffusive CFL timestep limiter
-    dτ_iter   = 1.0/9.1*min(dx,dy,dz)/sqrt(η0/ρ) # iterative CFL pseudo-timestep limiter
-    β         = 9.1*dτ_iter^2/min(dx,dy,dz)^2/ρ  # numerical bulk compressibility
+    dτ_iter   = 1.0/6.1*min(dx,dy,dz)/sqrt(η0/ρ) # iterative CFL pseudo-timestep limiter
+    β         = 6.1*dτ_iter^2/min(dx,dy,dz)^2/ρ  # numerical bulk compressibility
+    #################
     dampX     = 1.0-dmp/nx_g()                    # damping term for the x-momentum equation
     dampY     = 1.0-dmp/ny_g()                    # damping term for the y-momentum equation
-    dampZ     = 1.0-dmp/nz_g()                    # damping term for the y-momentum equation
+    dampZ     = 1.0-dmp/nz_g()                    # damping term for the z-momentum equation
     # Array allocations
     T         = @zeros(nx , ny, nz  )
     T        .= Data.Array([ΔT*exp(-((x_g(ix,dx,T)-0.5*lx)/w)^2 -((y_g(iy,dy,T)-0.5*ly)/w)^2 -((z_g(iz,dz,T)-0.5*lz)/w)^2) for ix=1:size(T,1), iy=1:size(T,2), iz=1:size(T,3)])
@@ -180,15 +185,16 @@ end
     dVxdτ     = @zeros(nx-1,ny-2,nz-2)
     dVydτ     = @zeros(nx-2,ny-1,nz-2)
     dVzdτ     = @zeros(nx-2,ny-2,nz-1)
-    dτVx       = @zeros(nx-1,ny-2,nz-2)
-    dτVy       = @zeros(nx-2,ny-1,nz-2)
-    dτVz       = @zeros(nx-2,ny-2,nz-1)
+    dτVx      = @zeros(nx-1,ny-2,nz-2)
+    dτVy      = @zeros(nx-2,ny-1,nz-2)
+    dτVz      = @zeros(nx-2,ny-2,nz-1)
     qTx       = @zeros(nx-1,ny-2,nz-2)
     qTy       = @zeros(nx-2,ny-1,nz-2)
     qTz       = @zeros(nx-2,ny-2,nz-1)
     dT_dt     = @zeros(nx-2,ny-2,nz-2)
     ErrP      = @zeros(nx  ,ny  ,nz)
-    ErrV      = @zeros(nx  ,ny+1,nz)
+    #################
+    ErrV      = @zeros(nx  ,ny,nz+1)
     # Preparation of visualisation
     ENV["GKSwstype"]="nul"
     if (me==0)
@@ -210,7 +216,7 @@ end
         @parallel assign!(T_old, T)
         errV, errP = 2*ε, 2*ε; iter=1; niter=0
         while (errV > ε || errP > ε) && iter <= iterMax
-            @parallel assign!(ErrV, Vy)
+            @parallel assign!(ErrV, Vz)
             @parallel assign!(ErrP, Pt)
             @parallel compute_0!(RogT, Eta, ∇V, T, Vx, Vy, Vz, ρ0gα, η0, dη_dT, ΔT, dx, dy, dz)
             @parallel compute_1!(Pt, τxx, τyy, τzz, σxy, σxz, σyz, Eta, ∇V, Vx, Vy, Vz, dτ_iter, β, dx, dy, dz)
@@ -225,10 +231,10 @@ end
                 @parallel (1:size(Vy,1), 1:size(Vy,2)) bc_z!(Vy)
                 update_halo!(Vx, Vy, Vz)
             end
-            @parallel compute_error!(ErrV, Vy)
+            @parallel compute_error!(ErrV, Vz)
             @parallel compute_error!(ErrP, Pt)
             if mod(iter,nerr) == 0
-                errV = maximum_g(abs.(Array(ErrV)))/(1e-12 + maximum_g(abs.(Array(Vy))))
+                errV = maximum_g(abs.(Array(ErrV)))/(1e-12 + maximum_g(abs.(Array(Vz))))
                 errP = maximum_g(abs.(Array(ErrP)))/(1e-12 + maximum_g(abs.(Array(Pt))))
                 push!(err_evo1, max(errV, errP)); push!(err_evo2,iter)
                 if (me==0) @printf("Total steps = %d, errV=%1.3e, errP=%1.3e \n", iter, errV, errP) end
@@ -238,23 +244,21 @@ end
         # Thermal solver
         @parallel compute_qT!(qTx, qTy, qTz, T, DcT, dx, dy, dz)
         @parallel advect_T!(dT_dt, qTx, qTy, qTz, T, Vx, Vy, Vz, dx, dy, dz)
-        dt_adv = min(dx/maximum_g(abs.(Array(Vx))), dy/maximum_g(abs.(Array(Vy))), dz/maximum_g(abs.(Array(Vz))))/2.1
+        dt_adv = min(dx/maximum_g(abs.(Array(Vx))), dy/maximum_g(abs.(Array(Vy))), dz/maximum_g(abs.(Array(Vz))))/3.1
         dt     = min(dt_diff, dt_adv)
         @parallel update_T!(T, T_old, dT_dt, dt)
         @parallel no_fluxYZ_T!(T)
+        update_halo!(T)
         if (me==0) @printf("it = %d (iter = %d), errV=%1.3e, errP=%1.3e \n", it, niter, errV, errP) end
         # Visualization
-        T_inn .= Array(inn(T));   gather!(T_inn, T_v)
-        if mod(it,nout)==0 && me==0
-            heatmap(Xi_g, Zi_g, T_v[:,y_sl,:]', aspect_ratio=1, xlims=(Xi_g[1], Xi_g[end]), zlims=(Zi_g[1], Zi_g[end]), c=:inferno, clims=(-0.1,0.1), title="T° (it = $it of $nt)")
-            #Vxp = 0.5*(Vx[1:st:end-1,1:st:end  ,1:st:end  ]+Vx[2:st:end,1:st:end,1:st:end])
-            #Vyp = 0.5*(Vy[1:st:end  ,1:st:end-1,1:st:end  ]+Vy[1:st:end,2:st:end,1:st:end])
-            #Vzp = 0.5*(Vz[1:st:end  ,1:st:end  ,1:st:end-1]+Vz[1:st:end,1:st:end,2:st:end])
-            #Vscale = 1/maximum_g(sqrt.(Vxp.^2 + Vyp.^2 + Vzp.^2)) * dx*(st-1)
-            #quiver!(Xp[:], Zp[:], quiver=(Vxp[:]*Vscale, Vzp[:]*Vscale), lw=0.1, c=:blue);
-            frame(anim)
-            save_array("out_T", convert.(Float32, Array(T)))
-            # display( quiver!(Xp[:], Yp[:], quiver=(Vxp[:]*Vscale, Vyp[:]*Vscale), lw=0.1, c=:blue) )
+        if mod(it,nout)==0
+            T_inn .= Array(inn(T));   gather!(T_inn, T_v)
+            if me==0
+                heatmap(Xi_g, Zi_g, T_v[:,y_sl,:]', aspect_ratio=1, xlims=(Xi_g[1], Xi_g[end]), zlims=(Zi_g[1], Zi_g[end]), c=:inferno, clims=(-0.1,0.1), title="T° (it = $it of $nt)")
+                frame(anim)
+                out_T = "out_T" * string(Int(it/10), pad=3)
+                save_array(out_T, convert.(Float32, Array(T_v)))
+            end
         end
     end
     gif(anim, "ThermalConvect3D.gif", fps = 15)
