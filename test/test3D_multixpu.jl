@@ -1,6 +1,6 @@
 using Test
 
-include("../scripts/ThermalConvection3D.jl")
+include("../src/ThermalConvection3D.jl")
 @testset "Unit test: ThermalConvection3D.jl" begin
 
     @test 1 ≈ 1
