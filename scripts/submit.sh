@@ -2,7 +2,7 @@
 #SBATCH --job-name="3D_Lava_Lamp"
 #SBATCH --output=my_gpu_run.%j.o
 #SBATCH --error=my_gpu_run.%j.e
-#SBATCH --time=03:00:00
+#SBATCH --time=08:00:00
 #SBATCH --nodes=8
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=normal
