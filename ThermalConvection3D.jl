@@ -140,23 +140,21 @@ end
     dη_dT     = 1e-10/ΔT           # viscosity's temperature dependence
     # Numerics
     nx, ny, nz = 96*ar-1, 96-1, 96-1      # numerical grid resolutions; should be a mulitple of 32-1 for optimal GPU perf
-    iterMax   = 5*10^4             # maximal number of pseudo-transient iterations
+    me, dims, nprocs, coords, comm = init_global_grid(nx, ny, nz) # MPI initialisation
+    select_device()                                               # select one GPU per MPI local rank (if >1 GPU per node)
+    iterMax   = 10max(nx_g(),ny_g(),nz_g())    # maximal number of pseudo-transient iterations
     nt        = 3000               # total number of timesteps
     nout      = 10                 # frequency of plotting
-    nerr      = 100                # frequency of error checking
+    nerr      = ceil(2max(nx_g(),ny_g(),nz_g()))                # frequency of error checking
     ε         = 1e-4               # nonlinear absolute tolerence
     dmp       = 2                  # damping paramter
     st        = 5                  # quiver plotting spatial step
     # Derived numerics
-    me, dims, nprocs, coords, comm = init_global_grid(nx, ny, nz) # MPI initialisation
-    select_device()                                               # select one GPU per MPI local rank (if >1 GPU per node)
     dx, dy, dz = lx/(nx_g()-1), ly/(ny_g()-1), lz/(nz_g()-1)         # cell size
     ρ         = 1.0/Pra*η0/DcT                # density
-    #################
     dt_diff   = 1.0/6.1*min(dx,dy,dz)^2/DcT      # diffusive CFL timestep limiter
     dτ_iter   = 1.0/6.1*min(dx,dy,dz)/sqrt(η0/ρ) # iterative CFL pseudo-timestep limiter
     β         = 6.1*dτ_iter^2/min(dx,dy,dz)^2/ρ  # numerical bulk compressibility
-    #################
     dampX     = 1.0-dmp/nx_g()                    # damping term for the x-momentum equation
     dampY     = 1.0-dmp/ny_g()                    # damping term for the y-momentum equation
     dampZ     = 1.0-dmp/nz_g()                    # damping term for the z-momentum equation
@@ -193,7 +191,6 @@ end
     qTz       = @zeros(nx-2,ny-2,nz-1)
     dT_dt     = @zeros(nx-2,ny-2,nz-2)
     ErrP      = @zeros(nx  ,ny  ,nz)
-    #################
     ErrV      = @zeros(nx  ,ny,nz+1)
     # Preparation of visualisation
     ENV["GKSwstype"]="nul"
@@ -210,6 +207,9 @@ end
     #Xc, Yc, Zc = [x for x=X, y=Y, z=Z], [y for x=X, y=Y, z=Z], [z for x=X, y=Y, z=Z]
     #Xp, Yp, Zp = Xc[1:st:end,1:st:end,1:st:end], Yc[1:st:end,1:st:end,1:st:end], Zc[1:st:end,1:st:end,1:st:end]
     Xi_g, Zi_g  = -lx/2+dx:dx:(lx/2-dx), -lz/2+dz:dz:(lz/2-dz) # inner points only
+    update_halo!(T)
+    T = Data.Array(T)
+    T_old       = copy(T)
     # Time loop
     err_evo1=[]; err_evo2=[]
     for it = 1:nt
@@ -256,12 +256,12 @@ end
             if me==0
                 heatmap(Xi_g, Zi_g, T_v[:,y_sl,:]', aspect_ratio=1, xlims=(Xi_g[1], Xi_g[end]), zlims=(Zi_g[1], Zi_g[end]), c=:inferno, clims=(-0.1,0.1), title="T° (it = $it of $nt)")
                 frame(anim)
-                out_T = "out_T" * string(Int(it/10), pad=3)
+                out_T = "viz3D_out/out_T" * string(Int(it/10), pad=3)
                 save_array(out_T, convert.(Float32, Array(T_v)))
             end
         end
     end
-    gif(anim, "ThermalConvect3D.gif", fps = 15)
+    if (me==0) gif(anim, "ThermalConvect3D.gif", fps = 15) end
     finalize_global_grid()
     return
 end
